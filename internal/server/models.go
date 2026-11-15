@@ -166,7 +166,24 @@ func (s *Server) loadModelsDiskCache(realm string) []map[string]any {
 
 // resolveModelKey maps a client model name onto an upstream key for a realm.
 func (s *Server) resolveModelKey(model, realm string) string {
-	return s.catalog.ResolveUpstreamKey(model, realm)
+	if realm == "" {
+		realm = s.currentRealm()
+	}
+	key := s.catalog.ResolveUpstreamKey(model, realm)
+	if s.catalog.IsKnownUpstreamKey(key, realm) {
+		return key
+	}
+	// The snapshot may lag behind a rename (Qwen3.7-Max became
+	// Qwen4-Max-Preview). The live catalog knows the new display name, but the
+	// registry only learns it when the model list is fetched — and a request can
+	// arrive first. Fetching here costs a cached call (5 min TTL) and lets an
+	// otherwise-unresolvable name still route to its real upstream key instead of
+	// being passed through and silently billed as "auto".
+	s.fetchModels(realm)
+	if again := s.catalog.ResolveUpstreamKey(model, realm); s.catalog.IsKnownUpstreamKey(again, realm) {
+		return again
+	}
+	return key
 }
 
 // displayNameFor returns the official display name of an upstream key.

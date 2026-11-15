@@ -197,3 +197,24 @@ func TestPrefixedModelResolves(t *testing.T) {
 		t.Fatalf("%q resolved to unknown key %q", name, got)
 	}
 }
+
+// TestRenamedModelResolvesViaLiveCatalog documents the rename window: the
+// official client renamed qmodel_latest from "Qwen3.7-Max" to
+// "Qwen4-Max-Preview", and the bundled snapshot still carries the old name.
+// Without the live catalog the new name resolves to itself and is forwarded
+// upstream, where an unknown name is silently billed as "auto".
+func TestRenamedModelResolvesViaLiveCatalog(t *testing.T) {
+	r := Default()
+	// The snapshot does not know the new name yet.
+	if r.IsKnownUpstreamKey("Qwen4-Max-Preview", "cn") {
+		t.Skip("snapshot already updated; this guard is for the rename window")
+	}
+	// Registering the live display name is what closes the window.
+	r.RegisterLiveDisplayNames([][2]string{{"Qwen4-Max-Preview", "qmodel_latest"}})
+	if got := r.ResolveUpstreamKey("qoder:Qwen4-Max-Preview", "cn"); got != "qmodel_latest" {
+		t.Fatalf("prefixed renamed model resolved to %q, want qmodel_latest", got)
+	}
+	if got := r.ResolveUpstreamKey("Qwen4-Max-Preview", "cn"); got != "qmodel_latest" {
+		t.Fatalf("renamed model resolved to %q, want qmodel_latest", got)
+	}
+}
