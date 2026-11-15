@@ -1,0 +1,16 @@
+# Build output
+/qoder-proxy
+/qoder-proxy.exe
+/qoder-proxy-*
+*.test
+
+# Runtime state
+/accounts/
+/usage/
+/logs/
+*.log
+*.pid
+
+# Editor
+.idea/
+.vscode/
