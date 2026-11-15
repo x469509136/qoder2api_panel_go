@@ -16,6 +16,18 @@
   * **原子写**：先写临时文件再 os.replace，崩溃不会留下半个 JSON。
   * **沿用既有条目形状**：字段集合与顺序对齐现有 77 个条目，避免 Codex 读到
     半认识的条目。
+
+关于前缀（实测结论，codex-cli 0.167.0-alpha.4.1）:
+  * Codex **不会**按 slug 前缀挑 provider；slug 原样作为 `model` 发到当前
+    model_provider 的 base_url。所以 `qoder:` 只是给网关看的命名空间，
+    真正路由靠 config.toml 的 [model_providers.qoder] + --profile qoder。
+  * 若把 qoder 模型发给不服务它们的 provider（例如 station `ss`），会直接
+    503 model_not_found；若发给本机网关但名字解析不了，网关会静默按 auto
+    透传（credits=0）——两种都是「看起来 200、其实打错模型」。
+
+Codex 会**丢弃**的字段（写了无害但无效，实测 `codex debug models` 里不出现）:
+  max_output_tokens / supports_parallel_tool_calls / supports_reasoning_summaries
+本脚本不再写它们；`max_output_tokens` 仅保留在 description 里作说明。
 """
 
 from __future__ import annotations
@@ -108,7 +120,6 @@ def build_entry(m: dict, prefix: str, priority: int) -> dict:
         "default_reasoning_level": default_level,
         "supported_reasoning_levels": levels,
         "additional_speed_tiers": [],
-        "supports_parallel_tool_calls": True,
         "context_window": ctx,
         "model_messages": {
             "instructions_template": BASE_INSTRUCTIONS,
@@ -126,6 +137,7 @@ def build_entry(m: dict, prefix: str, priority: int) -> dict:
         "effective_context_window_percent": 95,
         "supported_in_api": True,
         "supports_image_detail_original": True,
+        "supports_experimental_context": False,
         "base_instructions": BASE_INSTRUCTIONS,
         "include_skills_usage_instructions": False,
         "support_verbosity": True,
@@ -146,9 +158,10 @@ def build_entry(m: dict, prefix: str, priority: int) -> dict:
         "tool_mode": "code_mode_only",
         "input_modalities": ["text", "image"] if vision else ["text"],
         "multi_agent_version": "v2",
-        "supports_reasoning_summaries": False,
         "auto_compact_token_limit": int(ctx * 0.48),
-        "max_output_tokens": out_tokens,
+        # max_output_tokens / supports_parallel_tool_calls / supports_reasoning_summaries
+        # are silently dropped by codex 0.167 (`codex debug models` omits them),
+        # so they are not written; the value stays in `description` for reference.
     }
 
 
@@ -187,7 +200,8 @@ def main() -> int:
     print(f"to add         : {len(added)}")
     for e in added:
         print(f"  + {e['slug']:<28} ctx={e['context_window']:<8} "
-              f"out={e['max_output_tokens']:<6} default={e['default_reasoning_level']:<7} "
+              f"default={e['default_reasoning_level']:<7} "
+              f"efforts={','.join(x['effort'] for x in e['supported_reasoning_levels']):<22} "
               f"mods={','.join(e['input_modalities'])}")
 
     if args.dry_run or not added:
