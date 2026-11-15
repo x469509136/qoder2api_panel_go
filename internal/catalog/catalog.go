@@ -474,15 +474,37 @@ func (r *Registry) displayIndex() map[string]string {
 	return idx
 }
 
+// ModelNamePrefixes are namespace prefixes a client may prepend to a model name.
+//
+// A client that aggregates several gateways (for example a Codex model catalog
+// that namespaces every upstream) sends "qoder:Qwen3.8-Flash". Without this
+// strip the name matches nothing, and an unresolvable name is forwarded upstream
+// verbatim — the upstream then silently routes it as "auto", so the caller pays
+// for a model it did not ask for and never learns about it.
+var ModelNamePrefixes = []string{"qoder:", "qoder/", "qoder-"}
+
+// StripModelPrefix removes a recognised namespace prefix from a model name.
+// Returns the bare name and whether a prefix was removed.
+func StripModelPrefix(model string) (string, bool) {
+	m := strings.TrimSpace(model)
+	for _, p := range ModelNamePrefixes {
+		if len(m) > len(p) && strings.EqualFold(m[:len(p)], p) {
+			return strings.TrimSpace(m[len(p):]), true
+		}
+	}
+	return m, false
+}
+
 // ResolveUpstreamKey maps a client-supplied model name onto an upstream key.
 //
 // Accepted forms: the official key, a display id "key (Name)", a client
-// alias, the official display name, and the official localized label.
+// alias, the official display name, the official localized label, and any of
+// those with a namespace prefix ("qoder:Qwen3.8-Flash").
 func (r *Registry) ResolveUpstreamKey(model, realm string) string {
 	if strings.TrimSpace(model) == "" {
 		return "auto"
 	}
-	m := strings.TrimSpace(model)
+	m, _ := StripModelPrefix(model)
 
 	var realmKeys map[string]bool
 	rows := r.ModelsForRealm(realm)

@@ -164,3 +164,36 @@ func TestDialogModelsPrefersChat(t *testing.T) {
 		t.Fatalf("app-only entries must be appended: %v", rows[1])
 	}
 }
+
+func TestStripModelPrefix(t *testing.T) {
+	cases := map[string]string{
+		"Qwen3.8-Flash":         "Qwen3.8-Flash",
+		"qoder:Qwen3.8-Flash":   "Qwen3.8-Flash",
+		"QODER:Qwen3.8-Flash":   "Qwen3.8-Flash",
+		"qoder/Qwen3.8-Flash":   "Qwen3.8-Flash",
+		"qoder-":                "qoder-", // a bare prefix is not a prefix
+	}
+	for in, want := range cases {
+		if got, _ := StripModelPrefix(in); got != want {
+			t.Fatalf("StripModelPrefix(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestPrefixedModelResolves is the regression guard for the silent-auto trap:
+// an unprefixed-unknown name is forwarded verbatim and billed as auto, so a
+// namespace prefix must be stripped before resolution.
+func TestPrefixedModelResolves(t *testing.T) {
+	r := Default()
+	for _, name := range []string{"qoder:Qwen3.8-Flash", "qoder:GLM-5.3",
+		"qoder:DeepSeek-V4-Pro", "qoder:qmodel_38max"} {
+		got := r.ResolveUpstreamKey(name, "cn")
+		if got == name {
+			t.Fatalf("%q was not resolved (it would be forwarded as auto)", name)
+		}
+		if r.IsKnownUpstreamKey(got, "cn") || got == "auto" {
+			continue
+		}
+		t.Fatalf("%q resolved to unknown key %q", name, got)
+	}
+}
