@@ -1,94 +1,98 @@
-# 文档索引
+# bridge_qoder
 
-本目录有两类文档：
+Qoder（qoder.com.cn / qoder.com）→ OpenAI / Anthropic 兼容网关，**Go 实现**。
 
-1. **学习文档**（01–11）：对 `D:/github/bridge/qoder2api-hub`（Python，38k 行）的逐模块精读，
-   以及 Go 重写的设计与落地说明。
-2. **项目文档**（需求/架构/变更/踩坑/故障/模型交接）：面向接手维护的人，记录当前实现状态。
+目录说明：
+
+- 本文件 = 项目入口（特性 / 快速开始 / 接入方式）。
+- 交接文档（需求、架构、变更、踩坑、故障、模型）与本文同目录，见下方索引。
+- Python 原版（`qoder2api-hub`，约 3.8 万行）逐模块精读与 Go 移植方案在
+  [`学习设计文档/`](学习设计文档/README.md)。
 
 ## 交接先看这五篇
 
 | 文档 | 什么情况下看 |
 |---|---|
 | [需求文档.md](需求文档.md) | 想知道做过什么、验收标准是什么 |
-| [架构说明.md](架构说明.md) | 想了解代码分层、包职责、数据流 |
+| [架构说明.md](架构说明.md) | 想了解代码分层、包职责、数据流、目录结构 |
 | [变更记录.md](变更记录.md) | 想查某次改动的范围与理由 |
 | [踩坑笔记.md](踩坑笔记.md) | **动手改代码前必读**，避免重犯已知错误 |
 | [故障排查.md](故障排查.md) | 线上出问题时的排查路径 |
 | [模型交接文档.md](模型交接文档.md) | 模型清单、Codex 接入布局、实测数据 |
 
-## 学习文档（按顺序读）
+## 特性
 
-先看 01 建立全局图景，02–03 理解"请求怎么变成合法上游调用"，04–06 是账号与协议细节，
-07–09 是运营面，10–11 是 Go 移植方案与实现要点。
+- **三种协议**：OpenAI Chat Completions、Responses API（Codex）、Anthropic Messages（Claude Code）
+- **双区多账号**：国内版 / 国际版独立账号池与出口，按模型自动选区；轮询、会话亲和、冷却换号
+- **免客户端登录**：OAuth 设备授权（PKCE S256）、PAT 导入、本机凭证扫描
+- **模型与官方同源**：动态接口 > 磁盘缓存 > 本机客户端缓存 > 内置快照，四级降级
+- **签到与保活**：每日领取、活动平台、Token 定时刷新
+- **防风控**：每账号一套派生设备身份；COSY 签名与官方客户端逐字节对齐
+- **零第三方依赖**：只用 Go 标准库（含手写 RESP2 Redis 客户端）
+- **Web 看板**：单文件 `dashboard.html`，原样复用
 
-| 文档 | 内容 |
-|---|---|
-| [01-architecture.md](01-architecture.md) | 项目定位、模块地图、进程模型、启动流程、配置体系 |
-| [02-signing-and-encoding.md](02-signing-and-encoding.md) | 自定义 Base64、AES-CBC、RSA PKCS#1 v1.5、COSY 签名、设备指纹 |
-| [03-request-pipeline.md](03-request-pipeline.md) | baseprompt 模板、会话压平、图片预处理、body 构造、SSE 信封解包 |
-| [04-accounts-and-realms.md](04-accounts-and-realms.md) | 双区常量、账号对象、OAuth 设备授权、PAT、冷却/熔断/护栏、签到与活动 |
-| [05-protocols.md](05-protocols.md) | OpenAI Chat、Responses API、Anthropic Messages 三协议双向转换 |
-| [06-tool-call-guards.md](06-tool-call-guards.md) | 工具调用泄漏回读、DSML、伪 XML、参数修复、fail-closed/lenient |
-| [07-routing-and-scheduling.md](07-routing-and-scheduling.md) | 双区路由、会话亲和、前缀缓存保温、调度器与定时任务 |
-| [08-usage-and-observability.md](08-usage-and-observability.md) | 用量记账、积分折算、性能指标、洞察接口、日志 |
-| [09-admin-api.md](09-admin-api.md) | 全量 HTTP 端点清单与鉴权矩阵 |
-| [10-go-port-plan.md](10-go-port-plan.md) | Go 重写的包结构、映射表、差异与取舍、构建运行 |
-| [11-go-implementation-notes.md](11-go-implementation-notes.md) | Go 实现要点：关键算法落点、并发模型、测试策略 |
+## 快速开始
 
-## 一句话总结
+源码在 `code/`，先切进去：
 
-它是一个**协议翻译 + 多账号调度 + 上游身份伪装**的网关：
-
-```
-客户端（OpenAI / Responses / Anthropic）
-   → 归一成 Chat 请求
-   → 套官方 baseprompt 模板、压平会话、清洗工具历史
-   → Qoder 自定义 Base64 编码
-   → COSY 签名（RSA 包 AES 会话密钥 + MD5 请求签名）
-   → POST gateway/algo/api/v2/service/pro/sse/agent_chat_generation
-   → 解开 {"headers","body","statusCodeValue"} SSE 信封
-   → 回读泄漏的工具调用、清洗空字段
-   → 按客户端协议重新编码回 SSE / JSON
+```bash
+cd code
+go build -o qoder-proxy ./cmd/qoder-proxy
+./qoder-proxy --host 127.0.0.1 --port 18090
 ```
 
-三条贯穿全项目的主线，读代码时抓住它们就不会迷路：
+首次启动后打开 `http://127.0.0.1:18090/`，默认面板密码 `admin`（请立刻修改），
+在「账号」页添加账号。
 
-1. **前缀字节稳定性**：上游按账号缓存 prompt 前缀，任何一轮之间字节变化都会让缓存
-   命中率归零。所以会话压平、工具结果截短、Anthropic 的 messages 内 system 处理，
-   全部围绕"同样的历史永远序列化成同样的字节"设计。
-2. **单账号一台设备**：每账号的 machineId/hostname/token 都由 UID 加盐派生，
-   跨账号互不相同，避免被上游关联成"同一台机器刷几十个号"。
-3. **fail-closed 而非静默成功**：上游把工具调用吐成正文、参数被截断时，宁可报错
-   也不把内部标记透给用户，也不假装正常结束。
+端口优先级 `--port` > `PORT` 环境变量 > 默认 `18090`，越界（>65535）会直接启动失败。
 
-## 原始文档索引（源仓库 docs/）
+`assets/`、`web/`、`i18n/` 需与可执行文件同级（模型快照与 baseprompt 已内嵌，
+缺失外部文件时自动回退）。运行时生成 `accounts/`、`usage/`、`logs/`，三者均已忽略。
 
-- `internals.md`：请求链路、设备指纹、容错表、流式、工具调用、前缀缓存
-- `configuration.md`：全部命令行参数与环境变量（约 90 个）
-- `accounts.md`：账号、凭证生命周期、签到规则、VPC、团队账号
-- `models.md`：模型来源四级降级、命名、双区路由、峰谷价、思考档位
-- `api.md`：HTTP 端点、鉴权、额度构成、探活
-- `risk-control-and-queueing.md` / `risk-control-playbook.md`：风控维度与处置
-- `clients.md` / `deployment.md` / `troubleshooting.md`：接入与运维
+## 接入客户端
 
-## 代码规模（Python 原文）
+| 客户端 | Base URL | 协议 |
+|---|---|---|
+| OpenAI 兼容客户端 | `http://127.0.0.1:18090/v1` | Chat Completions |
+| Codex CLI | `http://127.0.0.1:18090/v1` | Responses API |
+| Claude Code | `http://127.0.0.1:18090` | Anthropic Messages |
 
-| 文件 | 行数 | 职责 |
-|---|---:|---|
-| `qoder_proxy.py` | 14974 | 主程序：路由、上游、协议转换、用量、看板鉴权 |
-| `qoder_accounts.py` | 5465 | 双区账号池、OAuth、PAT、额度、机器身份 |
-| `qoder_catalog.py` | 2186 | 官方模型清单加载与别名解析 |
-| `qoder_agents.py` | 1244 | 31 个客户端的探测与一键配置 |
-| `qoder_tasks.py` | 1055 | 签到、活动、福利包 |
-| `qoder_anthropic.py` | 802 | Anthropic ↔ Chat 转换 |
-| `qoder_settings.py` | 737 | 面板口令、API Key、模型闸门、限额、面板会话 |
-| `qoder_sign.py` | 718 | COSY 签名与纯 Python 密码学 |
-| `qoder_scheduler.py` | 530 | 整点调度 |
-| `qoder_routing.py` | 359 | 本地路由规则 |
-| `qoder_webtools.py` | 477 | 本地 web_search / web_fetch |
-| `qoder_fingerprint.py` | 336 | 设备指纹派生与虚拟机检测 |
-| 其余 | ~1500 | 缓存、图片、定价、保温、更新、活动流水、日志路径 |
-| `dashboard.html` | 565KB | 单文件看板 |
+```bash
+curl http://127.0.0.1:18090/v1/chat/completions \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "Qwen3.8-Flash", "messages": [{"role": "user", "content": "你好"}]}'
+```
 
-测试：`tests/` 下 150 个套件（约 1.3 万行），`_test_qoder.py` 是旧单文件入口。
+## 开发
+
+```bash
+cd code
+go build ./...        # 构建
+go vet ./...          # 静态检查
+go test ./...         # 单元 + 端到端测试
+go test -race ./...   # 竞态检测
+```
+
+端到端测试会起一个假的 Qoder 上游，验证签名、编码、信封解包、守卫链与三协议转换，
+不需要真实账号。
+
+## 目录
+
+```
+code/cmd/qoder-proxy/     进程入口
+code/internal/            网关实现（见 docs/学习设计文档/10-go-port-plan.md）
+code/web/                 单文件看板
+code/i18n/                语言包
+code/assets/              baseprompt.json + 双区模型快照
+code/tools/               add_qoder_models.py（导入 Codex 模型目录）
+code/accounts/ usage/ logs/   运行时生成，已忽略
+cmd_bat_sh/               预留的启停脚本目录（当前为空）
+docs/                     交接文档
+docs/学习设计文档/          Python 精读 + Go 移植说明
+```
+
+## 免责声明
+
+本项目是非官方的自托管网关，仅供技术研究，以及个人在私有环境中使用自己合法授权的
+账号。请遵守 Qoder 官方服务条款，不得用于商业转售、恶意并发等滥用行为。

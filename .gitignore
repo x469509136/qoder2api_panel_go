@@ -1,34 +1,70 @@
 # ---------------------------------------------------------------------------
+# bridge_qoder 忽略规则
+#
+# 目录结构（2026-11-16 起）：源码在 code/，运行时数据在 code/{accounts,usage,logs}/
+# 规则分四类：编译产物 / 运行时状态 / 中间与调试残留 / 编辑器
+#
+# 两条硬约束（均有事故记录，见 docs/踩坑笔记.md R4、R5）：
+#   1. 运行时目录必须显式带 code/ 前缀。旧的 /accounts/ 只锚定仓库根，
+#      源码搬到 code/ 后，真实 token 会变成可提交状态。
+#   2. 不能写成无锚点的 accounts/。那会连带忽略源码包 code/internal/accounts/。
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
 # 编译产物（可重新生成，不含数据）
 # ---------------------------------------------------------------------------
+/code/qoder-proxy
+/code/qoder-proxy.exe
+/code/qoder-proxy-*
 /qoder-proxy
 /qoder-proxy.exe
 /qoder-proxy-*
-*.test
 *.exe~
 *~
+
+# Go 测试与性能分析产物
+*.test
+*.test.exe
+*.coverprofile
+coverage.out
+coverage.html
+*.prof
+*.pprof
+*.trace
+
+# 交叉编译输出
+/build/
+/dist/
+/bin/
 
 # ---------------------------------------------------------------------------
 # 运行时状态（含凭据，绝不能入库）
 #
-# accounts/ 是真实 access/refresh token 与面板口令摘要；
-# usage/ 是请求流水（含账号 uid）；logs/ 可能含上游错误详情。
+# accounts/ 是真实 access/refresh token、机器身份、面板口令摘要；
+# usage/ 是请求流水（含账号 uid）；logs/ 可能含上游错误详情与请求体片段。
 # ---------------------------------------------------------------------------
 /accounts/
 /usage/
 /logs/
+/code/accounts/
+/code/usage/
+/code/logs/
 *.log
 *.pid
 
 # ---------------------------------------------------------------------------
-# 中间产物 / 调试残留（代码运行时会生成）
+# 中间产物 / 调试残留（运行与排查时生成）
 #
 # 写入路径举例：
-#   <accounts>/settings.json.tmp              settings 原子写
-#   <usage>/usage-summary.json.<pid>.<tid>.tmp usage 汇总原子写
-#   <accounts>/admin/admin/agents-backup/     客户端配置备份
-#   <任何路径>/*.qoder-proxy.tmp              agents 配置原子写
-#   bridge_models.json.bak-<时间戳>           tools/add_qoder_models.py 备份
+#   <accounts>/settings.json.tmp                settings 原子写
+#   <accounts>/credits-source.json.tmp          额度来源原子写
+#   <usage>/usage-summary.json.<pid>.<tid>.tmp  用量汇总原子写
+#   <accounts>/admin/routing.json.tmp           路由配置原子写
+#   <accounts>/scheduler/state.json.tmp         调度状态原子写
+#   <accounts>/admin/admin/agents-backup/       客户端配置备份
+#   <任意路径>/<file>.qoder-proxy.tmp           agents 配置原子写
+#   <accounts>/.probe-*                         /health 可写性探测
+#   bridge_models.json.bak-<时间戳>             tools/add_qoder_models.py 备份
 # ---------------------------------------------------------------------------
 *.tmp
 *.tmp.*
@@ -36,19 +72,39 @@
 *.rej
 *.bak
 *.bak-*
+
+# Python（tools/add_qoder_models.py）运行残留
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
 
-# ---------------------------------------------------------------------------
-# 调试输出（手工排查时产生的临时文件）
-# ---------------------------------------------------------------------------
-*.out
+# 手工排查产生的临时文件与目录
 *.diff
 *.patch.log
+*.out
 debug-*
 _diag-*
 /tmp/
+/scratch/
+
+# 逆向 / 解包产物（可重新生成，体积大且含第三方代码）
+# 例：分析 Electron 客户端时解出的 app.asar 与反编译目录
+*.asar
+/asar-extract/
+/asar-unpacked/
+/decompiled/
+
+# ---------------------------------------------------------------------------
+# 测试代码不在此列
+#
+# 11 个 *_test.go（133 个测试函数）是源码的一部分：go test ./... 依赖它们，
+# 忽略会让别人 clone 后测试直接缺失。上面只忽略测试**产物**
+# （*.test / coverage.* / *.prof）。联调用的临时脚本请放 /scratch/。
+# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # 编辑器 / OS
@@ -59,3 +115,5 @@ _diag-*
 *.swo
 .DS_Store
 Thumbs.db
+desktop.ini
+

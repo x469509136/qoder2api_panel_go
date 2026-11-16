@@ -1,0 +1,70 @@
+# ---------------------------------------------------------------------------
+# bridge_qoder 行尾与文本属性
+#
+# 仓库统一 LF（源码、文档、JSON 全部 LF，已用 git ls-files --eol 核对）。
+# 唯一例外是 Windows 命令脚本，必须 CRLF，否则 cmd.exe 解析多行语法会出错。
+#
+# 背景：本机全局 git core.autocrlf=true。没有 eol=lf 兜底时，Windows 检出会把
+# 所有文本文件变成 CRLF，导致 .go/.json/.md 的 diff 全是「空改动」，并改写
+# 与官方客户端对齐的 baseprompt.json。
+#
+# 规则顺序很重要：gitattributes 是「最后匹配者生效」，所以
+#   通用 text=auto  →  具体扩展名  →  例外（脚本 CRLF / 快照原样）
+# ---------------------------------------------------------------------------
+
+* text=auto eol=lf
+
+# --- 常见文本类型：显式 LF ------------------------------------------------
+*.go text eol=lf
+*.py text eol=lf
+*.md text eol=lf diff=markdown
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+go.mod text eol=lf
+go.sum text eol=lf
+
+# --- 二进制 ---------------------------------------------------------------
+*.7z binary
+*.bz2 binary
+*.dll binary
+*.exe binary
+*.gif binary
+*.gz binary
+*.ico binary
+*.jpeg binary
+*.jpg binary
+*.lib binary
+*.mp3 binary
+*.mp4 binary
+*.pdf binary
+*.png binary
+*.so binary
+*.tar binary
+*.tgz binary
+*.ttf binary
+*.wav binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.zip binary
+
+# --- 例外 1：Windows 命令脚本必须 CRLF ------------------------------------
+# 对应 docs/踩坑笔记.md R6：cmd.exe 的 goto/label 与括注块在 LF 下会误判。
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.psm1 text eol=crlf
+
+# --- 例外 2：协议对齐文件禁止任何规范化 ----------------------------------
+# baseprompt.json 每个字段都与官方客户端比对过；行尾或尾随空格变化会改变
+# 上游 prompt 前缀缓存命中率。快照同理，必须与官方 JSON 逐字节一致。
+# 放在最后，覆盖上面的 *.json text eol=lf。
+code/assets/baseprompt.json -text
+code/internal/protocol/baseprompt.json -text
+code/assets/qoder_catalog_cn.json -text
+code/assets/qoder_catalog_intl.json -text
+code/internal/catalog/snapshots/qoder_catalog_cn.json -text
+code/internal/catalog/snapshots/qoder_catalog_intl.json -text
+
