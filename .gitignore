@@ -2,7 +2,7 @@
 # bridge_qoder 忽略规则
 #
 # 目录结构（2026-11-16 起）：源码在 code/，运行时数据在 code/{accounts,usage,logs}/
-# 规则分四类：编译产物 / 运行时状态 / 中间与调试残留 / 编辑器
+ # 规则分五类：编译产物 / 运行时状态 / 中间与调试残留 / 构建脚本产物 / 编辑器
 #
 # 两条硬约束（均有事故记录，见 docs/踩坑笔记.md R4、R5）：
 #   1. 运行时目录必须显式带 code/ 前缀。旧的 /accounts/ 只锚定仓库根，
@@ -36,6 +36,12 @@ coverage.html
 /build/
 /dist/
 /bin/
+
+# Windows 打包产物（cmd_bat_sh/win10_cmd/build-win10.bat 的 OUT_DIR 默认值）
+# 内含 qoder-proxy.exe、web/ i18n/ assets/ 副本、SHA256SUMS.txt 与空运行时目录，
+# 全部可由 go build + xcopy 重新生成，不入库。
+/dist-win/
+/code/dist-win/
 
 # ---------------------------------------------------------------------------
 # 运行时状态（含凭据，绝不能入库）
@@ -90,6 +96,11 @@ debug-*
 _diag-*
 /tmp/
 /scratch/
+
+# 构建脚本的中间文件（build-win10.bat / 将来的 docker 脚本共用）
+*.build.log
+/cmd_bat_sh/**/out/
+/cmd_bat_sh/**/tmp/
 
 # 逆向 / 解包产物（可重新生成，体积大且含第三方代码）
 # 例：分析 Electron 客户端时解出的 app.asar 与反编译目录

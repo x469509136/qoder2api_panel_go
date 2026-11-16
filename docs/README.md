@@ -9,7 +9,7 @@ Qoder（qoder.com.cn / qoder.com）→ OpenAI / Anthropic 兼容网关，**Go �
 - Python 原版（`qoder2api-hub`，约 3.8 万行）逐模块精读与 Go 移植方案在
   [`学习设计文档/`](学习设计文档/README.md)。
 
-## 交接先看这五篇
+## 交接先看这六篇
 
 | 文档 | 什么情况下看 |
 |---|---|
@@ -49,6 +49,18 @@ go build -o qoder-proxy ./cmd/qoder-proxy
 `assets/`、`web/`、`i18n/` 需与可执行文件同级（模型快照与 baseprompt 已内嵌，
 缺失外部文件时自动回退）。运行时生成 `accounts/`、`usage/`、`logs/`，三者均已忽略。
 
+Windows 下也可以直接用构建脚本（产物落 `dist-win/`，已忽略）：
+
+```bat
+cmd_bat_sh\win10_cmd\build-win10.bat          REM release
+cmd_bat_sh\win10_cmd\build-win10.bat debug    REM 带符号
+cmd_bat_sh\win10_cmd\build-win10.bat clean    REM 清理产物目录
+```
+
+脚本会先跑 `go vet ./...`；因此**仓库编译不过时它必然失败**（当前拆包未收尾，见
+《故障排查》0.1）。脚本本身还有两处待修：文件是 UTF-8 + LF（规范要求 GB2312 + CRLF，
+见《踩坑笔记》R8），且同目录缺 `start-win10.bat` / `stop-win10.bat`。
+
 ## 接入客户端
 
 | 客户端 | Base URL | 协议 |
@@ -82,12 +94,14 @@ go test -race ./...   # 竞态检测
 ```
 code/cmd/qoder-proxy/     进程入口
 code/internal/            网关实现（见 docs/学习设计文档/10-go-port-plan.md）
+code/internal/qoder/      拆包（进行中）：Qoder 业务协议，不依赖账号池
 code/web/                 单文件看板
 code/i18n/                语言包
 code/assets/              baseprompt.json + 双区模型快照
 code/tools/               add_qoder_models.py（导入 Codex 模型目录）
 code/accounts/ usage/ logs/   运行时生成，已忽略
-cmd_bat_sh/               预留的启停脚本目录（当前为空）
+cmd_bat_sh/               构建脚本（win10_cmd/build-win10.bat）
+dist-win/                 build-win10.bat 的默认产物目录（已忽略）
 docs/                     交接文档
 docs/学习设计文档/          Python 精读 + Go 移植说明
 ```
