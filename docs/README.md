@@ -57,9 +57,8 @@ cmd_bat_sh\win10_cmd\build-win10.bat debug    REM 带符号
 cmd_bat_sh\win10_cmd\build-win10.bat clean    REM 清理产物目录
 ```
 
-脚本会先跑 `go vet ./...`；因此**仓库编译不过时它必然失败**（当前拆包未收尾，见
-《故障排查》0.1）。脚本本身还有两处待修：文件是 UTF-8 + LF（规范要求 GB2312 + CRLF，
-见《踩坑笔记》R8），且同目录缺 `start-win10.bat` / `stop-win10.bat`。
+脚本会先跑 `go vet ./...`；因此**仓库编译不过时它必然失败**。脚本同目录缺 `start-win10.bat` /
+`stop-win10.bat`（见《变更记录》本轮小节，属待补配套，不影响 release / debug / clean 的编译主流程）。
 
 ## 接入客户端
 
@@ -94,7 +93,7 @@ go test -race ./...   # 竞态检测
 ```
 code/cmd/qoder-proxy/     进程入口
 code/internal/            网关实现（见 docs/学习设计文档/10-go-port-plan.md）
-code/internal/qoder/      拆包（进行中）：Qoder 业务协议，不依赖账号池
+code/internal/qoder/      Qoder 业务协议（拆包已完成，不依赖账号池）
 code/web/                 单文件看板
 code/i18n/                语言包
 code/assets/              baseprompt.json + 双区模型快照

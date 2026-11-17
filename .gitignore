@@ -78,6 +78,8 @@ coverage.html
 *.rej
 *.bak
 *.bak-*
+.probe-*
+*.err
 
 # Python（tools/add_qoder_models.py）运行残留
 __pycache__/
