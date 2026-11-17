@@ -46,6 +46,9 @@ func TestCORSDoesNotOpenManagementRoutes(t *testing.T) {
 		{"/agents/apply", false},
 		{"/admin/routing", false},
 		{"/usage/recent", false},
+		// /v1/usage is the usage dashboard, not inference: same rule as /usage.
+		// It slipped through once because the allowlist matched a "/v1/" shape.
+		{"/v1/usage", false},
 		{"/tasks", false},
 		{"/diag/vm", false},
 		{"/credits", false},

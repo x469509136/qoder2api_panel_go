@@ -547,7 +547,7 @@ func (s *Server) applyCORS(w http.ResponseWriter, r *http.Request) {
 func (s *Server) corsAllowed(path string) bool {
 	for _, prefix := range []string{
 		"/v1/chat/completions", "/v1/completions", "/v1/responses",
-		"/v1/messages", "/v1/models", "/v1/usage",
+		"/v1/messages", "/v1/models",
 		"/chat/completions", "/completions", "/responses", "/messages", "/models",
 	} {
 		if path == prefix {

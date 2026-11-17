@@ -19,6 +19,16 @@ func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 			s.listAccounts(w, r)
 			return
 		case path == "/accounts/export":
+			// Refuse before building the document. A caller that asked for
+			// secrets=1 and got a token-free file would reasonably conclude
+			// the export is broken; say why instead (same rule as
+			// /settings/reveal).
+			if r.URL.Query().Get("secrets") == "1" && s.settings.PanelPasswordIsDefault() {
+				s.writeError(w, http.StatusForbidden,
+					"change the default panel password before exporting tokens",
+					"invalid_request_error")
+				return
+			}
 			s.writeJSON(w, http.StatusOK, s.exportAccounts(r))
 			return
 		case path == "/accounts/credits/usage":
@@ -96,6 +106,13 @@ func (s *Server) handleAccounts(w http.ResponseWriter, r *http.Request) {
 // migration/backup format, so the panel's export buttons ask for them, but a
 // bare GET must not hand plaintext credentials to anyone holding a panel
 // session (with the default password that used to mean the whole subnet).
+//
+// The default-password gate matters as much as the query flag. A fresh
+// install accepts "admin" — a value printed in the README — so ?secrets=1
+// behind that password is a published credential dump: the throttle only
+// slows the guess down, it does not make the password secret. /settings/reveal
+// already refuses in that state; the export must agree, otherwise the weaker
+// of the two defines the real boundary.
 // Layout matches build_export_document() in the Python gateway so the two
 // versions can import each other's files.
 func (s *Server) exportAccounts(r *http.Request) map[string]any {

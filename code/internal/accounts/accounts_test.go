@@ -200,6 +200,44 @@ func TestNextCheckinWindowUTC8(t *testing.T) {
 	}
 }
 
+// TestMarshalJSONNeverEmitsCredentials pins that the implicit encoding path is
+// the public view.
+//
+// ToMap() carries access/refresh/personal tokens because it is the on-disk
+// document. A type whose json.Marshal output contains plaintext credentials is
+// one careless call away from a leak — a log line, an error payload, a new panel
+// route that forgot to scrub. Persistence and the secrets=1 export call ToMap()
+// explicitly, so making MarshalJSON safe costs nothing and closes the implicit
+// path.
+func TestMarshalJSONNeverEmitsCredentials(t *testing.T) {
+	acc, err := NewAccount(map[string]any{
+		"uid": "m-1", "nickname": "n", "realm": "cn",
+		"accessToken": "dt-secret", "refreshToken": "drt-secret",
+		"personalToken": "pt-secret", "enabled": true,
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob, err := json.Marshal(acc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(blob)
+	for _, secret := range []string{"dt-secret", "drt-secret", "pt-secret"} {
+		if strings.Contains(text, secret) {
+			t.Errorf("json.Marshal(acc) leaked %q: %s", secret, text)
+		}
+	}
+	// The identity fields must survive, or a caller cannot tell accounts apart.
+	if !strings.Contains(text, "m-1") {
+		t.Errorf("json.Marshal(acc) lost the uid: %s", text)
+	}
+	// The persistence document must still carry them.
+	if acc.ToMap()["accessToken"] != "dt-secret" {
+		t.Error("ToMap() must keep the tokens: it is the on-disk document")
+	}
+}
+
 func TestAccountPersistenceRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	data := map[string]any{

@@ -15,6 +15,7 @@ package scheduler
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/xzs/bridge_qoder/internal/logx"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -311,6 +312,13 @@ func (s *Scheduler) SetEnabled(on bool) {
 
 // Log appends one line to the panel log and the gateway log.
 func (s *Scheduler) Log(msg string) {
+	// Redact before storing. These lines quote upstream error bodies verbatim
+	// ("… 失败: HTTP 401 {\"code\":\"TOKEN_EXPIRE\"…}"), and they take a
+	// different path from every other diagnostic: state.json on disk, then
+	// /scheduler and /health. Without this they would be the one log sink that
+	// logx.Redact never sees, so a credential appearing in an upstream body
+	// would be persisted and replayed to the panel unscrubbed.
+	msg = logx.Redact(msg)
 	entry := "[" + time.Now().Format("2006-01-02 15:04:05") + "] " + msg
 	s.mu.Lock()
 	s.logs = append(s.logs, entry)

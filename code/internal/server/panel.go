@@ -147,7 +147,23 @@ func (s *Server) handlePanelPassword(w http.ResponseWriter, r *http.Request) {
 // Health
 // ---------------------------------------------------------------------------
 
-// handleHealth reports version, realm, accounts, risk telemetry and env checks.
+// handleHealth reports version, realm, accounts and the protocol snapshots.
+//
+// The payload is split in two on purpose. Anonymous callers get operational
+// counters only, because /health is the one management-adjacent route that is
+// also reachable cross-origin (browsers poll it) and needs no credential:
+//
+//	scheduler.logs  every recent task line — account nicknames, upstream error
+//	                bodies ("token is not active"), and state_file's absolute path
+//	keepalive       session IDs, which are the client's conversation keys
+//	risk.last       the raw upstream error detail
+//	env             runs a temp-file probe and an outbound HEAD per call
+//
+// None of that is credential material, but together it names accounts, leaks
+// the deployment's filesystem layout, and lets any web page make this process
+// touch its own data directory. Identified callers (panel session, valid API
+// key, loopback) still get everything, so the panel and the launcher are
+// unaffected.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	info := map[string]any{
 		"ok":               true,
@@ -160,12 +176,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"accounts":         len(s.pool.Accounts()),
 		"accounts_ready":   s.pool.CountReady("", "", nil),
 		"api_key_required": s.authRequired(),
-		"risk":             s.riskSnapshot(),
-		"env":              s.envReport(),
 		"image_preflight":  protocolImageStatus(),
 		"tool_guards":      guardsSnapshot(),
-		"keepalive":        s.keepalive.Status(),
-		"scheduler":        s.scheduler.Status(),
 	}
 	// A keyed request additionally learns which account it is using.
 	//
@@ -173,6 +185,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	// "not checked", not "authenticated". A --host 0.0.0.0 instance with no
 	// key used to hand the account uid to any LAN client.
 	if s.healthIdentityVisible(r) {
+		info["risk"] = s.riskSnapshot()
+		info["env"] = s.envReport()
+		info["keepalive"] = s.keepalive.Status()
+		info["scheduler"] = s.scheduler.Status()
 		rep := s.pool.RepresentativeMatching(s.currentRealm())
 		if rep != nil {
 			info["uid"] = rep.UID

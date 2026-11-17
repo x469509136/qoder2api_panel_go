@@ -1229,7 +1229,17 @@ func mapKeys(m map[string]bool) []string {
 }
 
 // MarshalJSON keeps the persisted shape stable for panel exports.
-func (a *Account) MarshalJSON() ([]byte, error) { return json.Marshal(a.ToMap()) }
+//
+// It emits the PUBLIC view, not the persisted document. ToMap() carries the
+// access / refresh / personal tokens, and a type that marshals to plaintext
+// credentials is a leak waiting for one careless `json.Marshal(acc)` — a log
+// field, an error wall, a debug handler, a new panel route that forgot the
+// scrub. Anyone who genuinely needs the persisted document (Save, the
+// secrets=1 export) calls ToMap() explicitly, which is a visible choice.
+//
+// Verified: /accounts and every other panel route already used Public(); this
+// only closes the implicit path.
+func (a *Account) MarshalJSON() ([]byte, error) { return json.Marshal(a.Public()) }
 
 // ExpiryUnix returns the access token's expiry (0 = unknown).
 func (a *Account) ExpiryUnix() int64 {

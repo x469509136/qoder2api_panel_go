@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -18,6 +19,10 @@ import (
 // TestAccountsExportHidesTokensByDefault pins that a bare GET never hands out
 // access/refresh/personal tokens, and that ?secrets=1 still does (the panel's
 // export button needs the tokens to migrate an account between instances).
+//
+// ?secrets=1 is gated on the panel password no longer being the shipped
+// default. The test server starts on "admin", so the successful case has to
+// unlock the export first, exactly as an operator would.
 func TestAccountsExportHidesTokensByDefault(t *testing.T) {
 	up := &fakeUpstream{t: t, inner: []string{chunk("ok", "", "stop")}}
 	_, httpSrv, _ := newTestServer(t, up)
@@ -44,7 +49,27 @@ func TestAccountsExportHidesTokensByDefault(t *testing.T) {
 		}
 	})
 
-	t.Run("secrets=1", func(t *testing.T) {
+	t.Run("secrets=1 on the default password", func(t *testing.T) {
+		// A published password plus a plaintext dump is a public credential
+		// leak, so the request is refused outright rather than quietly
+		// returning a token-free file (which would look like a broken export).
+		req, err := http.NewRequest(http.MethodGet, httpSrv.URL+"/accounts/export?secrets=1", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("X-Panel-Token", token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("secrets=1 with the default password = %d, want 403", resp.StatusCode)
+		}
+	})
+
+	t.Run("secrets=1 after changing the password", func(t *testing.T) {
+		token = unlockSecretsExport(t, httpSrv.URL, token)
 		body := panelGet(t, httpSrv.URL+"/accounts/export?secrets=1", token)
 		accounts, _ := body["accounts"].([]any)
 		if len(accounts) != 1 {
@@ -131,6 +156,15 @@ func TestHealthHidesIdentityFromRemoteCallers(t *testing.T) {
 			t.Errorf("anonymous /health lost %q", key)
 		}
 	}
+	// The operational detail is operator-only: scheduler.logs names accounts and
+	// quotes upstream error bodies, keepalive.sessions are the clients'
+	// conversation keys, and scheduler.state_file is an absolute path on this
+	// host. /health is anonymous and CORS-readable, so none of it may ship.
+	for _, key := range []string{"scheduler", "keepalive", "risk", "env"} {
+		if _, present := anonBody[key]; present {
+			t.Errorf("anonymous /health leaked %q", key)
+		}
+	}
 
 	// A panel session on the same remote address sees the identity again.
 	token := panelToken(t, httpSrv.URL)
@@ -154,11 +188,20 @@ func TestHealthHidesIdentityFromRemoteCallers(t *testing.T) {
 // panelToken logs in with the default panel password and returns a token.
 func panelToken(t *testing.T, base string) string {
 	t.Helper()
-	resp := postJSON(t, base+"/panel/login", map[string]any{"password": "admin"})
+	return panelTokenWithPassword(t, base, "admin")
+}
+
+// panelTokenWithPassword logs in with an explicit password.
+//
+// Changing the panel password rotates the signing secret, so the token from the
+// previous login dies with it: tests that change the password must log in again.
+func panelTokenWithPassword(t *testing.T, base, password string) string {
+	t.Helper()
+	resp := postJSON(t, base+"/panel/login", map[string]any{"password": password})
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(resp.Body)
-		t.Fatalf("panel login: %d %.200s", resp.StatusCode, raw)
+		t.Fatalf("panel login (%s): %d %.200s", password, resp.StatusCode, raw)
 	}
 	var body map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
@@ -169,6 +212,34 @@ func panelToken(t *testing.T, base string) string {
 		t.Fatal("panel login returned no token")
 	}
 	return token
+}
+
+// unlockSecretsExport moves the panel off the shipped default password and
+// returns a session token minted afterwards.
+//
+// /accounts/export?secrets=1 refuses while the default password is in effect,
+// so this is the operator action the test needs before asserting the happy
+// path. The password change rotates the signing secret, which is why the
+// caller's old token is not reused.
+func unlockSecretsExport(t *testing.T, base, currentToken string) string {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, base+"/panel/password",
+		strings.NewReader(`{"current":"admin","password":"not-the-default"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Panel-Token", currentToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("panel password change: %d %.200s", resp.StatusCode, raw)
+	}
+	return panelTokenWithPassword(t, base, "not-the-default")
 }
 
 // panelGet fetches a panel endpoint and decodes the JSON object.
