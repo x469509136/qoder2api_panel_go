@@ -1,23 +1,23 @@
-package accounts
+package qoder
 
 import (
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 )
 
 // ScannedCredential is one credential found on this machine.
 type ScannedCredential struct {
-	Path      string   `json:"path"`
-	Realm     string   `json:"realm"`
-	RealmName string   `json:"realmName"`
-	UID       string   `json:"uid"`
-	Nickname  string   `json:"nickname"`
-	Valid     bool     `json:"valid"`
-	Reason    string   `json:"reason,omitempty"`
-	Account   *Account `json:"-"`
+	Path      string `json:"path"`
+	Realm     string `json:"realm"`
+	RealmName string `json:"realmName"`
+	UID       string `json:"uid"`
+	Nickname  string `json:"nickname"`
+	Valid     bool   `json:"valid"`
+	Reason    string `json:"reason,omitempty"`
+	// Credential is set when Valid.
+	Credential *Credential `json:"-"`
 }
 
 // ScanDesktopCredentials looks for credentials the official client already
@@ -42,7 +42,6 @@ func ScanDesktopCredentials() []ScannedCredential {
 			}
 		}
 	}
-	// Desktop application data directories.
 	for _, realm := range []string{RealmCN, RealmINTL} {
 		cfg := GetRealmConfig(realm)
 		appDir := os.Getenv("APPDATA")
@@ -90,45 +89,34 @@ func readCredentialFile(path, realm string) (ScannedCredential, bool) {
 		return cred, true
 	}
 	uid := firstNonEmpty(asString(data["uid"]), asString(data["id"]), asString(data["userId"]))
-	acc, err := NewAccount(map[string]any{
-		"uid":          uid,
-		"nickname":     firstNonEmpty(asString(data["nickname"]), asString(data["name"])),
-		"domain":       GetRealmConfig(realm).Domain,
-		"realm":        realm,
-		"accessToken":  token,
-		"refreshToken": firstNonEmpty(asString(data["refreshToken"]), asString(data["refresh_token"])),
-		"expiresAt":    normalizeEpoch(firstNonEmpty(asString(data["expiresAt"]), asString(data["expires_at"]))),
-		"source":       "desktop-scan",
-		"enabled":      true,
-	}, "")
-	if err != nil {
-		cred.Reason = err.Error()
-		return cred, true
-	}
-	cred.UID = acc.UID
-	cred.Nickname = acc.Nickname
+	cred.UID = uid
+	cred.Nickname = firstNonEmpty(asString(data["nickname"]), asString(data["name"]))
 	cred.Valid = true
-	cred.Account = acc
+	cred.Credential = &Credential{
+		UID:          uid,
+		Realm:        realm,
+		AccessToken:  token,
+		RefreshToken: firstNonEmpty(asString(data["refreshToken"]), asString(data["refresh_token"])),
+		ExpiresAt: normalizeEpoch(firstNonEmpty(
+			asString(data["expiresAt"]), asString(data["expires_at"]))),
+	}
 	return cred, true
 }
 
-// DesktopInstallDir returns the official client's install directory.
-func DesktopInstallDir(realm string) string {
-	cfg := GetRealmConfig(realm)
-	if runtime.GOOS == "windows" {
-		for _, env := range []string{"LOCALAPPDATA", "APPDATA"} {
-			if base := os.Getenv(env); base != "" {
-				candidate := filepath.Join(base, "Programs", cfg.AppDir)
-				if _, err := os.Stat(candidate); err == nil {
-					return candidate
-				}
-			}
-		}
+// CLIAuthDirs returns the official CLI credential directories to scan.
+func CLIAuthDirs(realm string, vpc *string) []string {
+	cfg, err := RealmConfigFor(realm, vpc)
+	if err != nil {
+		return nil
 	}
-	return ""
-}
-
-// LooksLikeVPC reports whether a domain is an enterprise VPC subdomain.
-func LooksLikeVPC(domain string) bool {
-	return strings.HasSuffix(strings.ToLower(domain), "."+VPCDomainSuffix)
+	root, err := os.UserHomeDir()
+	if err != nil || root == "" {
+		return nil
+	}
+	base := filepath.Join(root, cfg.HomeDir)
+	var out []string
+	if cfg.VPCInstance != "" {
+		out = append(out, filepath.Join(base, ".vpc", cfg.VPCInstance, ".auth"))
+	}
+	return append(out, filepath.Join(base, ".auth"))
 }

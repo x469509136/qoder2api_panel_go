@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/xzs/bridge_qoder/internal/qoder"
 )
 
 func newAccount(t *testing.T, extra map[string]any) *Account {
@@ -182,14 +184,14 @@ func TestLedgerIsUnknown(t *testing.T) {
 
 func TestNextCheckinWindowUTC8(t *testing.T) {
 	// 09:00 UTC+8 -> today at 10:00.
-	before := time.Date(2026, 11, 15, 9, 0, 0, 0, utc8)
+	before := time.Date(2026, 11, 15, 9, 0, 0, 0, qoder.UTC8)
 	w := NextCheckinWindow(before)
-	want := time.Date(2026, 11, 15, 10, 0, 0, 0, utc8)
+	want := time.Date(2026, 11, 15, 10, 0, 0, 0, qoder.UTC8)
 	if w.Epoch != want.Unix() {
-		t.Fatalf("window = %s, want %s", time.Unix(w.Epoch, 0).In(utc8), want)
+		t.Fatalf("window = %s, want %s", time.Unix(w.Epoch, 0).In(qoder.UTC8), want)
 	}
 	// 10:00 UTC+8 exactly -> tomorrow (never return a time already reached).
-	at := time.Date(2026, 11, 15, 10, 0, 0, 0, utc8)
+	at := time.Date(2026, 11, 15, 10, 0, 0, 0, qoder.UTC8)
 	w2 := NextCheckinWindow(at)
 	if w2.Epoch != want.AddDate(0, 0, 1).Unix() {
 		t.Fatalf("at the boundary the window must roll to tomorrow")
@@ -354,21 +356,22 @@ func TestVPCParsing(t *testing.T) {
 		{"acme-gateway.vpc.qoder.com.cn", "acme", "https://acme-openapi.vpc.qoder.com.cn"},
 	}
 	for _, c := range cases {
-		parsed, err := ParseVPCEndpoint(c.in)
+		vpc := c.in
+		cfg, err := RealmConfigFor(RealmCN, &vpc)
 		if err != nil {
 			t.Fatalf("%q: %v", c.in, err)
 		}
-		if parsed.instance != c.instance {
-			t.Fatalf("%q -> instance %q", c.in, parsed.instance)
+		if cfg.VPCInstance != c.instance {
+			t.Fatalf("%q -> instance %q", c.in, cfg.VPCInstance)
 		}
-		if parsed.openapi != c.openapi {
-			t.Fatalf("%q -> openapi %q", c.in, parsed.openapi)
+		if cfg.OpenAPI != c.openapi {
+			t.Fatalf("%q -> openapi %q", c.in, cfg.OpenAPI)
 		}
 	}
-	if _, err := ParseVPCEndpoint("https://acme.vpc.qoder.com.cn"); err == nil {
+	if _, err := qoder.ParseVPCEndpoint("https://acme.vpc.qoder.com.cn"); err == nil {
 		t.Fatal("a URL with a scheme must be rejected")
 	}
-	if _, err := ParseVPCEndpoint("acme/evil"); err == nil {
+	if _, err := qoder.ParseVPCEndpoint("acme/evil"); err == nil {
 		t.Fatal("a path must be rejected")
 	}
 }

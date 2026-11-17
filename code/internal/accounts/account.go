@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/xzs/bridge_qoder/internal/qoder"
 )
 
 // Failure-governance thresholds (task-74). Restarting the process resets them.
@@ -21,73 +23,6 @@ const (
 	SessionDeadTOKENEXPIRE = "TOKEN_EXPIRE"
 	SessionDeadCode        = "12153"
 )
-
-// CheckinWindowHourUTC8 is the fixed reset hour for daily credits.
-const CheckinWindowHourUTC8 = 10
-
-// LegacyExpiryNever is CN's "never expires" placeholder epoch.
-const LegacyExpiryNever = 253402214400
-
-var utc8 = time.FixedZone("UTC+8", 8*3600)
-
-// CheckinWindow is the next daily reset window.
-type CheckinWindow struct {
-	Epoch int64  `json:"epoch"`
-	Note  string `json:"note"`
-}
-
-// NextCheckinWindow returns the next "10:00 UTC+8" boundary and a human note.
-//
-// The window is always rendered in UTC+8, never the host's local zone: in a
-// container the host is usually UTC, and rendering locally would show a "next"
-// time eight hours off from the official rule.
-func NextCheckinWindow(now time.Time) CheckinWindow {
-	local := now.In(utc8)
-	today := time.Date(local.Year(), local.Month(), local.Day(),
-		CheckinWindowHourUTC8, 0, 0, 0, utc8)
-	target := today
-	if !local.Before(today) {
-		target = today.AddDate(0, 0, 1)
-	}
-	return CheckinWindow{Epoch: target.Unix(), Note: target.Format("01-02 15:04") + "（UTC+8）"}
-}
-
-// Credits is the normalised quota snapshot.
-type Credits struct {
-	Remain          int              `json:"remain"`
-	RemainEffective int              `json:"remain_effective"`
-	Used            int              `json:"used"`
-	Size            int              `json:"size"`
-	Exceeded        bool             `json:"exceeded"`
-	UsagePct        *float64         `json:"usage_pct,omitempty"`
-	ExpiresAt       int64            `json:"expires_at,omitempty"`
-	Shared          *SharedQuota     `json:"shared,omitempty"`
-	Packages        []map[string]any `json:"packages,omitempty"`
-	Composition     []Composition    `json:"composition,omitempty"`
-	Source          string           `json:"source,omitempty"`
-	UpdatedAt       int64            `json:"updated_at"`
-	UpdatedISO      string           `json:"updated_iso"`
-}
-
-// SharedQuota is the organisation-level pool.
-type SharedQuota struct {
-	Remain    int    `json:"remain"`
-	Used      int    `json:"used"`
-	Size      int    `json:"size"`
-	Available bool   `json:"available"`
-	Unlimited bool   `json:"unlimited,omitempty"`
-	Source    string `json:"source"`
-}
-
-// Composition is one quota container (plan / add-on / SOTA / shared).
-type Composition struct {
-	Name      string `json:"name"`
-	Kind      string `json:"kind"`
-	Remain    int    `json:"remain"`
-	Used      int    `json:"used"`
-	Size      int    `json:"size"`
-	ExpiresAt int64  `json:"expires_at,omitempty"`
-}
 
 // Account is one Qoder account and its runtime state.
 //
@@ -540,7 +475,8 @@ func (a *Account) Ready(model string) bool {
 	if a.tokenFresh() {
 		return true
 	}
-	// Token expired or about to: refreshing is the last resort.
+	// Token expired or about to: refreshing is the last resort. The protocol
+	// work itself lives in internal/qoder (see bridge.go).
 	return a.Refresh() == nil
 }
 
@@ -1009,13 +945,13 @@ func (a *Account) CanCheckin() bool {
 	if last == "" {
 		return true
 	}
-	return !strings.HasPrefix(last, time.Now().In(utc8).Format("2006-01-02"))
+	return !strings.HasPrefix(last, time.Now().In(qoder.UTC8).Format("2006-01-02"))
 }
 
 // StampCheckin records today's date in UTC+8.
 func (a *Account) StampCheckin() {
 	a.mu.Lock()
-	a.LastCheckin = time.Now().In(utc8).Format("2006-01-02")
+	a.LastCheckin = time.Now().In(qoder.UTC8).Format("2006-01-02")
 	a.mu.Unlock()
 }
 
@@ -1062,32 +998,6 @@ func SessionDead(msg string) bool {
 	return strings.Contains(msg, SessionDeadTOKENEXPIRE) ||
 		strings.Contains(msg, SessionDeadCode) ||
 		strings.Contains(msg, "Offline user session not found")
-}
-
-// LedgerIsUnknown distinguishes "unknown balance" from "zero balance".
-//
-// A revoked credential gets a degenerate quota body: all zeros (or missing
-// keys) plus isQuotaExceeded=true and expiresAt=CN's never-expires placeholder.
-// Treating that as zero would trip the guardrails and take the account out.
-func LedgerIsUnknown(c *Credits) bool {
-	if c == nil {
-		return false
-	}
-	if c.RemainEffective != 0 || c.Size != 0 {
-		return false
-	}
-	if !c.Exceeded {
-		return false
-	}
-	return c.ExpiresAt >= LegacyExpiryNever
-}
-
-// EffectiveRemain returns the balance used by guardrails and the summary.
-func (c *Credits) EffectiveRemain() int {
-	if c == nil {
-		return 0
-	}
-	return c.RemainEffective
 }
 
 func decodeCredits(raw map[string]any) *Credits {
@@ -1194,9 +1104,6 @@ func (a *Account) OrgNameValue() string {
 	defer a.mu.RUnlock()
 	return a.OrganizationName
 }
-
-// DefaultUserType is the fallback plan label.
-const DefaultUserType = "personal_professional_trial"
 
 // ---------------------------------------------------------------------------
 // small helpers
@@ -1340,4 +1247,4 @@ func (c PoolCandidate) IsReady(model string) bool { return c.Account.Ready(model
 func (c PoolCandidate) IsDegraded() bool { return c.Account.Degraded() }
 
 // UTC8 is the fixed timezone the official daily reset uses.
-func UTC8() *time.Location { return utc8 }
+func UTC8() *time.Location { return qoder.UTC8 }

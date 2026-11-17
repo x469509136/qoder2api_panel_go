@@ -1,4 +1,4 @@
-package accounts
+package qoder
 
 import (
 	"fmt"
@@ -14,7 +14,8 @@ const (
 )
 
 // RealmConfig is one region's endpoint table, reverse-engineered from the
-// official desktop/CLI client.
+// official desktop/CLI client. It is pure data: a host may load its own copy
+// from disk and pass it in, or use the compiled-in defaults.
 type RealmConfig struct {
 	Name              string   `json:"name"`
 	OpenAPI           string   `json:"openapi"`
@@ -65,8 +66,7 @@ var RealmConfigs = map[string]RealmConfig{
 		HomeDir:     ".qoder",
 		AppDir:      "com.qoder.app.stable",
 		// The intl endpoint split inference across clusters: api3 is the primary
-		// inference host, api2 is security inference. api1 has not been in the
-		// official candidate list for a long time.
+		// inference host, api2 is security inference.
 		GatewayFallbacks:  []string{"https://api2.qoder.sh", "https://api1.qoder.sh"},
 		SecurityInference: "https://api2.qoder.sh",
 		SendClientID:      true,
@@ -77,7 +77,8 @@ var RealmConfigs = map[string]RealmConfig{
 }
 
 // Business endpoints, all mounted on the openapi base with plain Bearer auth
-// (no COSY signature).
+// (no COSY signature). Kept as constants so a caller can build its own request
+// without depending on this package's method set.
 const (
 	PathDevicePoll     = "/api/v1/deviceToken/poll"
 	PathDeviceRefresh  = "/api/v1/deviceToken/refresh"
@@ -114,9 +115,6 @@ var CreditPaths = []string{
 	"/sash/api/v1/me/credits",
 	"/sash/api/v1/me/usage",
 }
-
-// CreditSourceFile records which (host, path) pair worked per realm.
-const CreditSourceFile = "credits-source.json"
 
 // VPCDomainSuffix is the enterprise VPC domain tail.
 const VPCDomainSuffix = "vpc.qoder.com.cn"
@@ -223,8 +221,7 @@ func RealmConfigFor(realm string, vpc *string) (RealmConfig, error) {
 		if vpc != nil && *vpc != "" {
 			return RealmConfig{}, fmt.Errorf("VPC is only available for CN accounts")
 		}
-		cfg := RealmConfigs[RealmINTL]
-		return cfg, nil
+		return RealmConfigs[RealmINTL], nil
 	}
 	cfg := RealmConfigs[RealmCN]
 	if vpc == nil {
@@ -269,11 +266,6 @@ func GetRealmConfig(realm string) RealmConfig {
 }
 
 // GatewayCandidates returns the inference host list for a realm.
-//
-// The COSY signature only covers the path, so switching hosts after a transport
-// failure does not invalidate it. VPC instances have exactly one host: the
-// public api1/api2/api3 cluster must never be a fallback for enterprise
-// credentials.
 func GatewayCandidates(realm string, cfg RealmConfig) []string {
 	out := []string{cfg.Gateway}
 	if cfg.VPCInstance != "" {
@@ -338,27 +330,13 @@ func DetectRealmFromDomain(domain string) string {
 	return RealmCN
 }
 
-// CLIAuthDirs returns the official CLI credential directories to scan.
-func CLIAuthDirs(realm string, vpc *string) []string {
-	cfg, _ := RealmConfigFor(realm, vpc)
-	root := homeDir(cfg.HomeDir)
-	var out []string
-	if cfg.VPCInstance != "" {
-		out = append(out, root+"/.vpc/"+cfg.VPCInstance+"/.auth")
+// EndpointScope is the stable key used to remember "which host/path served this
+// account's quota" across restarts.
+func EndpointScope(realm, vpcInstance string) string {
+	if vpcInstance != "" {
+		return realm + ":vpc:" + vpcInstance
 	}
-	out = append(out, root+"/.auth")
-	return out
-}
-
-// VPCConfigured reports whether a deployment-level VPC default is active.
-func VPCConfigured() bool { return vpcCN != nil }
-
-// VPCInstanceName returns the deployment-level VPC instance ("" when none).
-func VPCInstanceName() string {
-	if vpcCN == nil {
-		return ""
-	}
-	return vpcCN.instance
+	return realm
 }
 
 // IsConfiguredVCPHost reports whether host belongs to the configured VPC.
@@ -373,4 +351,15 @@ func IsConfiguredVCPHost(host string) bool {
 	h := strings.ToLower(u.Hostname())
 	return strings.HasSuffix(h, "."+VPCDomainSuffix) &&
 		strings.HasPrefix(h, vpcCN.instance)
+}
+
+// VPCConfigured reports whether a deployment-level VPC default is active.
+func VPCConfigured() bool { return vpcCN != nil }
+
+// VPCInstanceName returns the deployment-level VPC instance ("" when none).
+func VPCInstanceName() string {
+	if vpcCN == nil {
+		return ""
+	}
+	return vpcCN.instance
 }

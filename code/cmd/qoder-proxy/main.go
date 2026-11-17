@@ -44,11 +44,11 @@ func run() error {
 	}
 	// A malformed VPC endpoint is a startup error: silently falling back to the
 	// public host would send enterprise credentials to the wrong place.
-	if accounts.VPCConfigError != "" {
+	if vpcErr := accounts.VPCConfigError(); vpcErr != "" {
 		return fmt.Errorf("invalid QD_CN_VPC_ENDPOINT: %s\n"+
 			"        expected an instance name (e.g. acme) or one of\n"+
 			"        acme.vpc.qoder.com.cn / acme-openapi.vpc.qoder.com.cn /\n"+
-			"        acme-gateway.vpc.qoder.com.cn", accounts.VPCConfigError)
+			"        acme-gateway.vpc.qoder.com.cn", vpcErr)
 	}
 	fingerprint.SetLegacy(envTruthy("QD_DEVICE_ID_LEGACY"))
 
