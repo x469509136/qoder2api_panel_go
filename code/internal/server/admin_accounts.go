@@ -250,11 +250,12 @@ func (s *Server) importDesktop(w http.ResponseWriter, r *http.Request, payload m
 	}
 	imported := 0
 	for _, item := range targets {
-		if item.Account == nil {
-			continue
-		}
-		if err := s.pool.Add(item.Account); err == nil {
-			imported++
+		// The scan hit carries a bare qoder.Credential; AccountFromScan adds
+		// the pool-side state fields (AddedAt, Enabled, ...).
+		if acc, err := accounts.AccountFromScan(&item); err == nil {
+			if err := s.pool.Add(acc); err == nil {
+				imported++
+			}
 		}
 	}
 	s.applyPoolSettings()
