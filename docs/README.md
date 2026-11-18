@@ -2,6 +2,8 @@
 
 Qoder（qoder.com.cn / qoder.com）→ OpenAI / Anthropic 兼容网关，**Go 实现**。
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
+
 目录说明：
 
 - 本文件 = 项目入口（特性 / 快速开始 / 接入方式）。
@@ -108,4 +110,7 @@ docs/学习设计文档/          Python 精读 + Go 移植说明
 ## 免责声明
 
 本项目是非官方的自托管网关，仅供技术研究，以及个人在私有环境中使用自己合法授权的
-账号。请遵守 Qoder 官方服务条款，不得用于商业转售、恶意并发等滥用行为。
+账号。本项目不提供任何账号或额度。请遵守 Qoder 官方服务条款，不得用于商业转售、
+恶意并发等滥用行为。
+
+[MIT License](LICENSE)
